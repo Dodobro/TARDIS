@@ -52,6 +52,89 @@ TARDIS:AddKeyBind("teleport-mat",{
 	exterior=true
 })
 
+TARDIS:AddControl({
+	id = "teleport",
+	ext_func=function(self,ply)
+		if (self:GetData("teleport") or self:GetData("vortex")) then
+			self:Mat(function(result)
+				if result then
+					TARDIS:Message(ply, "Materialising")
+				else
+					TARDIS:ErrorMessage(ply, "Failed to materialise")
+				end
+			end)
+		else
+			local pos = pos or self:GetData("demat-pos") or self:GetPos()
+			local ang = ang or self:GetData("demat-ang") or self:GetAngles()
+			self:Demat(pos, ang, function(result)
+				if result then
+					TARDIS:Message(ply, "Dematerialising")
+				else
+					TARDIS:ErrorMessage(ply, "Failed to dematerialise")
+				end
+			end)
+		end
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = true,
+		frame_type = {0, 1},
+		text = "Teleport",
+		pressed_state_from_interior = false,
+		pressed_state_data = {"teleport", "vortex"},
+		order = 7,
+	},
+	tip_text = "Space-Time Throttle",
+})
+
+TARDIS:AddControl({
+	id = "fastreturn",
+	ext_func=function(self,ply)
+		self:FastReturn(function(result)
+			if result then
+				TARDIS:Message(ply, "Fast-return protocol initiated")
+			else
+				TARDIS:ErrorMessage(ply, "Failed to initiate fast-return protocol")
+			end
+		end)
+	end,
+	serveronly = true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = false,
+		frame_type = {0, 1},
+		text = "Fast Return",
+		order = 8,
+	},
+	tip_text = "Fast Return Protocol",
+})
+
+TARDIS:AddControl({
+	id = "vortex_flight",
+	ext_func=function(self,ply)
+		if self:ToggleFastRemat() then
+			TARDIS:StatusMessage(ply, "Vortex flight", self:GetData("demat-fast"), "disabled", "enabled")
+		else
+			TARDIS:ErrorMessage(ply, "Failed to toggle vortex flight")
+		end
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = true,
+		frame_type = {1, 2},
+		text = "Vortex Flight",
+		pressed_state_from_interior = false,
+		pressed_state_data = "demat-fast",
+		order = 9,
+	},
+	tip_text = "Vortex Flight Toggler",
+})
+
 if SERVER then
 	function ENT:Demat(pos,ang,callback)
 		if self:CallHook("CanDemat")~=false then
@@ -79,8 +162,8 @@ if SERVER then
 					local attached
 					if constrained then
 						for k,v in pairs(constrained) do
-							if not (v.TardisPart or v==self) then
-								local a=v:GetColor().a
+							if not (k.TardisPart or k==self) then
+								local a=k:GetColor().a
 								if not attached then attached = {} end
 								attached[k] = a
 							end
@@ -116,7 +199,7 @@ if SERVER then
 						self:SetData("prevortex-flight",nil)
 						self:SetSolid(SOLID_VPHYSICS)
 						self:CallHook("MatStart")
-							
+
 						local pos=self:GetData("demat-pos",Vector())
 						local ang=self:GetData("demat-ang",Angle())
 						local attached=self:GetData("demat-attached")
@@ -148,6 +231,10 @@ if SERVER then
 									local phys=k:GetPhysicsObject()
 									if phys and IsValid(phys) then
 										k:SetSolid(SOLID_VPHYSICS)
+										if k.gravity~=nil then
+											phys:EnableGravity(k.gravity)
+											k.gravity = nil
+										end
 									end
 									k.nocollide=nil
 								end
@@ -199,6 +286,8 @@ if SERVER then
 					local phys=k:GetPhysicsObject()
 					if phys and IsValid(phys) then
 						k:SetSolid(SOLID_NONE)
+						k.gravity = phys:IsGravityEnabled()
+						phys:EnableGravity(false)
 					end
 				end
 			end
@@ -365,6 +454,10 @@ if SERVER then
 		if self:GetData("vortex") then
 			return true
 		end
+	end)
+
+	ENT:AddHook("ShouldTakeDamage", "vortex", function(self)
+		if self:GetData("vortex",false) then return false end
 	end)
 
 	ENT:AddHook("ShouldExteriorDoorCollide", "teleport", function(self,open)

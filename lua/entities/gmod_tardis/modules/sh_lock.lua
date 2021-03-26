@@ -1,5 +1,30 @@
 -- Lock
 
+TARDIS:AddControl({
+	id = "doorlock",
+	ext_func=function(self,ply)
+		self:ToggleLocked(function(result)
+			if result then
+				TARDIS:StatusMessage(ply, "Door", self:GetData("locked"), "locked", "unlocked")
+			else
+				TARDIS:ErrorMessage(ply, "Failed to toggle door lock")
+			end
+		end)
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = true,
+		frame_type = {1, 2},
+		text = "Door Lock",
+		pressed_state_from_interior = false,
+		pressed_state_data = "locked",
+		order = 6,
+	},
+	tip_text = "Door Lock",
+})
+
 function ENT:Locked()
 	return self:GetData("locked",false)
 end
@@ -52,7 +77,7 @@ if SERVER then
 	ENT:AddHook("Use", "lock", function(self,a,c)
 		if self:GetData("locked") and IsValid(a) and a:IsPlayer() then
 			if self:CallHook("LockedUse",a,c)==nil then
-				a:ChatPrint("This TARDIS is locked.")
+                TARDIS:Message(a, "This TARDIS is locked.")
 			end
 			self:EmitSound(self.metadata.Exterior.Sounds.Door.locked)
 		end
@@ -80,6 +105,7 @@ else
 		type="bool",
 		option=true
 	})
+
 	ENT:OnMessage("locksound",function(self)
 		local snd = self.metadata.Exterior.Sounds.Lock
 		if TARDIS:GetSetting("locksound-enabled") and TARDIS:GetSetting("sound") then

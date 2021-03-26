@@ -26,6 +26,64 @@ TARDIS:AddSetting({
 	networked=true
 })
 
+TARDIS:AddSetting({
+	id="redecorate-interior",
+	name="Redecoration interior",
+	value="default",
+	networked=true
+})
+
+TARDIS:AddControl({
+	id = "repair",
+	ext_func=function(self,ply)
+		if not self:ToggleRepair() then
+			TARDIS:ErrorMessage(ply, "Failed to toggle self-repair")
+		end
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = true,
+		frame_type = {0, 1},
+		text = "Self-Repair",
+		pressed_state_from_interior = false,
+		pressed_state_data = "repair-primed",
+		order = 3,
+	},
+	tip_text = "Self-Repair",
+})
+
+TARDIS:AddControl({
+	id = "redecorate",
+	ext_func=function(self,ply)
+		local on = self:GetData("redecorate", false)
+		on = self:SetData("redecorate", not on, true)
+
+		local chosen_int = TARDIS:GetSetting("redecorate-interior","default",self:GetCreator())
+
+		if on and (chosen_int == self.metadata.ID) then
+			TARDIS:ErrorMessage(ply, "New interior has not been selected")
+		elseif on and not self:GetData("repair-primed") then
+			TARDIS:Message(ply, "Hint: enable self-repair to start redecoration")
+			-- We print this first for it to be lower in the list
+		end
+		TARDIS:StatusMessage(ply, "Redecoration", on)
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = true,
+		mmenu = false,
+		toggle = true,
+		frame_type = {0, 1},
+		text = "Redecoration",
+		pressed_state_from_interior = false,
+		pressed_state_data = "redecorate",
+		order = 4,
+	},
+	tip_text = "Redecoration",
+})
+
 ENT:AddHook("Initialize","health-init",function(self)
 	self:SetData("health-val", TARDIS:GetSetting("health-max"), true)
 	if SERVER and WireLib then
@@ -100,17 +158,17 @@ if SERVER then
 
 	function ENT:ToggleRepair()
 		local on = not self:GetData("repair-primed",false)
-		self:SetRepair(on)
+		return self:SetRepair(on)
 	end
 	function ENT:SetRepair(on)
 		if not TARDIS:GetSetting("health-enabled") and self:GetHealth()~=TARDIS:GetSetting("health-max",1) then 
 			self:ChangeHealth(TARDIS:GetSetting("health-max"),1)
-			return 
+			return false
 		end
-		if self:CallHook("CanRepair")==false then return end
+		if self:CallHook("CanRepair")==false then return false end
 		if on==true then
 			for k,_ in pairs(self.occupants) do
-				k:ChatPrint("This TARDIS has been set to self-repair. Please vacate the interior.")
+				TARDIS:Message(k, "This TARDIS has been set to self-repair. Please vacate the interior.")
 			end
 			if self:GetPower() then self:SetPower(false) end
 			self:SetData("repair-primed",true,true)
@@ -125,9 +183,10 @@ if SERVER then
 			self:SetData("repair-primed",false,true)
 			self:SetPower(true)
 			for k,_ in pairs(self.occupants) do
-				k:ChatPrint("TARDIS self-repair has been cancelled.")
+				TARDIS:Message(k, "Self-repair has been cancelled.")
 			end
 		end
+		return true
 	end
 
 	function ENT:StartRepair()
@@ -140,33 +199,16 @@ if SERVER then
 		self:CallHook("RepairStarted")
 	end
 
-	ENT:AddHook("ShouldRedecorate", "health", function(self)
-		return self:GetData("redecorate",false) and true or nil
-	end)
-
 	function ENT:FinishRepair()
 		if self:CallHook("ShouldRedecorate") then
-			local pos = self:GetPos()
-			local ang = self:GetAngles()
-			local creator = self:GetCreator()
-			local ent = ents.Create("gmod_tardis")
-			ent:SetCreator(creator)
-			ent:SetPos(pos+Vector(0,0,2))
-			ent:SetAngles(ang)
+			local ent = TARDIS:SpawnTARDIS(self:GetCreator(),{
+				metadataID = TARDIS:GetSetting("redecorate-interior","default",self:GetCreator()),
+				finishrepair = true,
+				pos = self:GetPos()+Vector(0,0,2),
+				ang = self:GetAngles()
+			})
 			self:Remove()
-
-			ent:Spawn()
 			ent:GetPhysicsObject():Sleep()
-			undo.Create("TARDIS")
-				undo.AddEntity(ent)
-				undo.SetPlayer(creator)
-			undo.Finish()
-			timer.Simple(0.5, function()
-				if not IsValid(ent) then return end
-				ent:GetPhysicsObject():Wake()
-				ent:EmitSound(ent.metadata.Exterior.Sounds.RepairFinish)
-				ent:FlashLight(1.5)
-			end)
 			return
 		end
 		self:EmitSound(self.metadata.Exterior.Sounds.RepairFinish)
@@ -175,7 +217,7 @@ if SERVER then
 		self:CallHook("RepairFinished")
 		self:SetPower(true)
 		self:SetLocked(false, nil, true)
-		self:GetCreator():ChatPrint("Your TARDIS has finished self-repairing")
+        TARDIS:Message(self:GetCreator(), "Your TARDIS has finished self-repairing")
 		self:StopSmoke()
 		self:FlashLight(1.5)
 	end
@@ -214,12 +256,34 @@ if SERVER then
 
 	ENT:AddHook("CanRepair", "health", function(self)
 		if self:GetData("vortex", false) then return false end
-		local intsetting = TARDIS:GetSetting("interior","default",self:GetCreator())
 		if (self:GetHealth() >= TARDIS:GetSetting("health-max", 1))
-			and not self:GetData("redecorate", false) or not TARDIS:GetInterior(intsetting)
+			and not self:CallHook("ShouldRedecorate")
 		then
 			return false
 		end
+	end)
+
+	ENT:AddHook("ShouldRedecorate", "health", function(self)
+		return (self:GetData("redecorate",false) and TARDIS:GetSetting("redecorate-interior","default",self:GetCreator()) ~= self.metadata.ID) and true or nil
+	end)
+
+	ENT:AddHook("CustomData", "health-redecorate", function(self, customdata)
+		if customdata.finishrepair then
+			self:SetPos(customdata.pos)
+			self:SetAngles(customdata.ang)
+			self:SetData("finishrepair",true)
+		end
+	end)
+
+	ENT:AddHook("Initialize", "health-redecorate", function(self)
+		if not self:GetData("finishrepair",false) then return end
+		timer.Simple(0.5, function()
+			if not IsValid(self) then return end
+			self:GetPhysicsObject():Wake()
+			self:EmitSound(self.metadata.Exterior.Sounds.RepairFinish)
+			self:FlashLight(1.5)
+		end)
+		self:SetData("finishrepair",nil)
 	end)
 
 	ENT:AddHook("CanTogglePower", "health", function(self)
@@ -247,19 +311,23 @@ if SERVER then
 
 	ENT:AddHook("LockedUse", "repair", function(self, a)
 		if self:GetData("repairing") then
-			a:ChatPrint("This TARDIS is repairing. It will be done in "..math.floor(self:GetRepairTime()).." seconds.")
+            TARDIS:Message(a, "This TARDIS is repairing. It will be done in "..math.floor(self:GetRepairTime()).." seconds.")
 			return true
 		end
 	end)
 
 	ENT:AddHook("Think", "repair", function(self)
+		if self:GetData("repair-primed", false) and self:CallHook("CanRepair") == false then
+			self:SetData("repair-primed", false, true)
+			self:SetPower(true)
+			for k,_ in pairs(self.occupants) do
+				TARDIS:Message(k, "Self-repair has been cancelled.")
+			end
+		end
+
 		if self:GetData("repair-primed",false) and self:GetData("repair-shouldstart") and CurTime() > self:GetData("repair-delay") then
 			self:SetData("repair-shouldstart", false)
 			self:StartRepair()
-		end
-
-		if self:GetData("repair-primed", false) and self:CallHook("CanRepair") == false then
-			self:SetData("repair-primed", false, true)
 		end
 
 		if (self:GetData("repairing",false) and CurTime()>self:GetData("repair-time",0)) then
@@ -267,7 +335,7 @@ if SERVER then
 		end
 	end)
 
-	ENT:AddHook("ShouldTakeDamage", "DamageOff", function(self, dmginfo)
+	ENT:AddHook("ShouldTakeDamage", "Health", function(self, dmginfo)
 		if not TARDIS:GetSetting("health-enabled") then return false end
 	end)
 
@@ -362,5 +430,10 @@ else
 		local newhealth = net.ReadInt(32)
 		self:ChangeHealth(newhealth)
 		self:SetData("UpdateHealthScreen", true, true)
+	end)
+
+	ENT:AddHook("Initialize", "redecorate-reset", function(self)
+		if not IsValid(self) or (not LocalPlayer() == self:GetCreator()) then return end
+		TARDIS:SetSetting("redecorate-interior",self.metadata.ID,true)
 	end)
 end

@@ -1,5 +1,22 @@
 -- Destination
 
+TARDIS:AddControl({
+	id = "destination",
+	ext_func=function(self,ply)
+		self:SelectDestination(ply, true)
+	end,
+	serveronly=true,
+	screen_button = {
+		virt_console = false,
+		mmenu = true,
+		toggle = false,
+		frame_type = {0, 1},
+		text = "Destination",
+		order = 4,
+	},
+	tip_text = "Destination Select",
+})
+
 -- Binds
 TARDIS:AddKeyBind("destination-forward",{
 	name="Forward",
@@ -153,24 +170,24 @@ if SERVER then
 		end
 		if self:GetData("vortex") or self:GetData("teleport") then
 			if self:SetDestination(pos,ang) then
-				ply:ChatPrint("Destination locked, ready to materialise")
+                TARDIS:Message(ply, "Destination locked, ready to materialise")
 			else
-				ply:ChatPrint("Failed to set destination, may be transitioning")
+                TARDIS:Message(ply, "Failed to set destination, may be transitioning")
 			end
 		else
 			if TARDIS:GetSetting("dest-onsetdemat",false,ply) then
 				self:Demat(pos,ang,function(success)
 					if success then
-						ply:ChatPrint("Destination locked, dematerialising...")
+                        TARDIS:Message(ply, "Destination locked, dematerialising...")
 					else
-						ply:ChatPrint("Failed to dematerialise")
+                        TARDIS:Message(ply, "Failed to dematerialise")
 					end
 				end)
 			else
 				if self:SetDestination(pos,ang) then
-					ply:ChatPrint("Destination locked, ready to dematerialise")
+                    TARDIS:Message(ply, "Destination locked, ready to dematerialise")
 				else
-					ply:ChatPrint("Failed to set destination")
+                    TARDIS:Message(ply, "Failed to set destination")
 				end
 			end
 		end
